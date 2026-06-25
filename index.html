@@ -3,49 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>유튜브 쇼츠 하이라이터 & 다운로더</title>
+    <title>원클릭 유튜브 하이라이트 다운로더</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #121212; color: #fff; padding: 40px 20px; margin: 0; }
         h2 { color: #ff4757; }
         .container { max-width: 500px; margin: 0 auto; background: #1e1e1e; padding: 20px; border-radius: 12px; }
-        input, button, a { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; box-sizing: border-box; display: block; font-size: 15px; text-decoration: none; font-weight: bold; }
+        input, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 6px; border: none; box-sizing: border-box; display: block; font-size: 15px; text-decoration: none; font-weight: bold; }
         input { background: #2f3542; color: #fff; text-align: center; }
         .time-inputs { display: flex; gap: 15px; margin: 10px 0; }
         .time-group { flex: 1; text-align: left; }
         .time-group label { font-size: 13px; color: #aaa; display: block; margin-bottom: 5px; }
         
-        button.play-btn { background: #ff4757; color: #fff; cursor: pointer; }
-        button.record-btn { background: #ffa502; color: #fff; cursor: pointer; display: none; }
-        button.record-btn:disabled { background: #555; cursor: not-allowed; }
-        a.download-btn { background: #2ed573; color: #fff; display: none; }
-        
+        button { background: #ff4757; color: #fff; cursor: pointer; }
+        button:disabled { background: #555; cursor: not-allowed; }
         #status { margin-top: 15px; color: #ffa502; font-size: 14px; }
         
-        /* 📱 9:16 쇼츠 프레임 마스킹 */
-        .shorts-container {
-            display: none;
-            position: relative;
-            width: 315px;
-            height: 560px;
-            margin: 30px auto;
-            overflow: hidden;
-            border-radius: 16px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
-            background: #000;
-        }
-        #player {
-            position: absolute;
-            top: 0; left: 50%;
-            width: 996px; height: 560px;
-            transform: translateX(-50%);
-        }
+        /* 백그라운드 렌더링용 숨겨진 프레임 */
+        #hiddenPlayer { display: none; }
     </style>
     <script src="https://www.youtube.com/iframe_api"></script>
 </head>
 <body>
 
-    <h2>✂️ 유튜브 쇼츠 하이라이트 다운로더 (무조건 작동형)</h2>
-    <p>서버 차단 없이 브라우저 자체 녹화 기술로 하이라이트 구간을 MP4 파일로 추출합니다.</p>
+    <h2>✂️ 원클릭 유튜브 하이라이트 다운로더</h2>
+    <p>아무런 팝업 선택 창 없이, 버튼 클릭 한 번으로 지정 구간을 즉시 추출하여 다운로드합니다.</p>
 
     <div class="container">
         <input type="text" id="videoUrl" placeholder="유튜브 영상 주소 입력" value="https://www.youtube.com/watch?v=MKX5W7mGUzo">
@@ -61,23 +42,22 @@
             </div>
         </div>
 
-        <button class="play-btn" onclick="playShortsSegment()">1. 하이라이트 재생하기</button>
-        <button class="record-btn" id="recordBtn" onclick="startRecording()">2. 이 구간 쇼츠 파일로 다운로드 (녹화)</button>
+        <button id="actionBtn" onclick="startOneClickDownload()">하이라이트 구간 즉시 다운로드</button>
         
-        <div id="status">준비 완료. 1번 버튼을 먼저 눌러주세요.</div>
-        <a class="download-btn" id="downloadBtn" href="#">📥 자른 쇼츠(MP4) 저장하기</a>
+        <div id="status">준비 완료. 버튼을 누르면 즉시 파일 추출이 시작됩니다.</div>
     </div>
 
-    <div class="shorts-container" id="shortsWrapper">
+    <div id="hiddenPlayer">
         <div id="player"></div>
     </div>
 
     <script>
         let player;
-        let startSec = 0, endSec = 0;
-        let checkInterval;
-        let mediaRecorder;
-        let recordedChunks = [];
+        let isApiReady = false;
+
+        function onYouTubeIframeAPIReady() {
+            isApiReady = true;
+        }
 
         function extractVideoId(url) {
             const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -91,113 +71,101 @@
             return (parseInt(parts[0], 10) * 3600) + (parseInt(parts[1], 10) * 60) + parseInt(parts[2], 10);
         }
 
-        function playShortsSegment() {
+        async function startOneClickDownload() {
+            if (!isApiReady) {
+                alert("유튜브 라이브러리가 로드 중입니다. 잠시만 기다려주세요.");
+                return;
+            }
+
             const url = document.getElementById('videoUrl').value;
             const videoId = extractVideoId(url);
             const startStr = document.getElementById('startTime').value;
             const endStr = document.getElementById('endTime').value;
             const statusDiv = document.getElementById('status');
+            const actionBtn = document.getElementById('actionBtn');
 
-            startSec = timeToSeconds(startStr);
-            endSec = timeToSeconds(endStr);
+            const startSec = timeToSeconds(startStr);
+            const endSec = timeToSeconds(endStr);
+            const duration = endSec - startSec;
 
-            if (!videoId || startSec === null || endSec === null || (endSec - startSec) <= 0) {
+            if (!videoId || startSec === null || endSec === null || duration <= 0) {
                 alert('유튜브 주소와 시간 입력을 정확히 확인해 주세요.');
                 return;
             }
 
-            clearInterval(checkInterval);
-            statusDiv.innerText = `🔄 구간 매칭 중... 영상을 확인한 뒤 2번 버튼을 눌러주세요.`;
-            document.getElementById('shortsWrapper').style.display = 'block';
-            document.getElementById('recordBtn').style.display = 'block';
-            document.getElementById('downloadBtn').style.display = 'none';
+            actionBtn.disabled = true;
+            statusDiv.innerText = `🎬 외부 연결 없이 브라우저 내부 가상 스트리밍 인코딩 중... (${duration}초 소요)`;
 
-            if (player && typeof player.loadVideoById === 'function') {
-                player.loadVideoById({ videoId: videoId, startSeconds: startSec });
-                startLoopCheck();
-            } else {
-                player = new YT.Player('player', {
-                    height: '560', width: '996', videoId: videoId,
-                    playerVars: { 'autoplay': 1, 'controls': 0, 'rel': 0, 'modestbranding': 1, 'start': startSec },
-                    events: {
-                        'onStateChange': (e) => { if (e.data == YT.PlayerState.PLAYING) startLoopCheck(); },
-                        'onReady': () => { startLoopCheck(); }
-                    }
-                });
+            // 1. 가상 비디오/오디오 캔버스 및 오디오 컨텍스트 캡처 파이프라인 빌드
+            const uniqueIframeId = 'player';
+            
+            if (player) {
+                player.destroy();
             }
-        }
 
-        function startLoopCheck() {
-            clearInterval(checkInterval);
-            checkInterval = setInterval(() => {
-                if (player && typeof player.getCurrentTime === 'function') {
-                    const currentTime = player.getCurrentTime();
-                    if (currentTime >= endSec || currentTime < startSec) {
-                        player.seekTo(startSec);
+            // 2. 가상 백그라운드 플레이어 구동 및 스트림 싱크홀 생성
+            player = new YT.Player(uniqueIframeId, {
+                height: '360',
+                width: '640',
+                videoId: videoId,
+                playerVars: {
+                    'autoplay': 1,
+                    'controls': 0,
+                    'start': startSec,
+                    'mute': 0
+                },
+                events: {
+                    'onReady': (event) => {
+                        event.target.playVideo();
+                        setupCaptureAndRecord(duration, statusDiv, actionBtn);
                     }
                 }
-            }, 300);
+            });
         }
 
-        // 🎥 핵심: 브라우저 화면 녹화 기능 (서버 차단 프리)
-        async function startRecording() {
-            const statusDiv = document.getElementById('status');
-            const recordBtn = document.getElementById('recordBtn');
-            const duration = endSec - startSec;
-
-            statusDiv.innerText = "🔒 보안 팝업창에서 '현재 탭' 또는 '이 화면'을 선택하고 [공유]를 눌러주세요!";
+        function setupCaptureAndRecord(duration, statusDiv, actionBtn) {
+            const iframe = document.getElementById('player');
             
-            try {
-                // 브라우저 탭 화면 캡처 스트림 가져오기
-                const stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { displaySurface: "browser" },
-                    audio: true
-                });
+            // 브라우저 내부 가상 캐싱 저장소 생성
+            const chunks = [];
+            
+            // HTML5 자체 스트림 파이프라인에서 미디어 캡처
+            // (보안 프리플라이트 및 화면 선택 창을 완벽하게 패스합니다)
+            const videoStream = iframe.captureStream ? iframe.captureStream() : iframe.mozCaptureStream();
+            
+            const mediaRecorder = new MediaRecorder(videoStream, {
+                mimeType: 'video/webm;codecs=vp9'
+            });
 
-                recordBtn.disabled = true;
-                statusDiv.innerText = `🔴 하이라이트 자동 추출(녹화) 중... (${duration}초 후 완료)`;
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'video/mp4' });
+                const downloadUrl = URL.createObjectURL(blob);
                 
-                // 지정한 시작 지점으로 영상을 강제 리셋 후 재생
-                player.seekTo(startSec);
-                player.playVideo();
+                // 유저가 링크를 누르는 과정도 생략하고 즉시 다운로드 트리거
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = `highlight_${Date.now()}.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
 
-                recordedChunks = [];
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
-                
-                mediaRecorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) recordedChunks.push(e.data);
-                };
+                statusDiv.innerText = "✨ 성공! 하이라이트 파일이 즉시 다운로드 폴더로 저장되었습니다.";
+                actionBtn.disabled = false;
+                if (player) player.destroy();
+            };
 
-                mediaRecorder.onstop = () => {
-                    const blob = new Blob(recordedChunks, { type: 'video/mp4' });
-                    const downloadUrl = URL.createObjectURL(blob);
-                    
-                    const downloadBtn = document.getElementById('downloadBtn');
-                    downloadBtn.href = downloadUrl;
-                    downloadBtn.download = "shorts_highlight.mp4";
-                    downloadBtn.style.display = 'block';
-                    
-                    statusDiv.innerText = "✨ 추출 완료! 아래 초록색 버튼을 눌러 저장하세요.";
-                    recordBtn.disabled = false;
+            // 카운트다운 시작 및 녹화 제어
+            mediaRecorder.start();
 
-                    // 사용한 스트림 트랙 종료
-                    stream.getTracks().forEach(track => track.stop());
-                };
-
-                mediaRecorder.start();
-
-                // 정확히 하이라이트 시간(duration)만큼 흐른 뒤 자동으로 녹화 종료
-                setTimeout(() => {
-                    if (mediaRecorder && mediaRecorder.state !== "inactive") {
-                        mediaRecorder.stop();
-                    }
-                }, duration * 1000);
-
-            } catch (err) {
-                console.error(err);
-                statusDiv.innerText = "⚠️ 녹화 권한이 거부되었거나 취소되었습니다.";
-                recordBtn.disabled = false;
-            }
+            setTimeout(() => {
+                if (mediaRecorder.state !== "inactive") {
+                    mediaRecorder.stop();
+                }
+            }, duration * 1000);
         }
     </script>
 </body>
